@@ -1,0 +1,17 @@
+# Maven
+target/
+dependency-reduced-pom.xml
+
+# IDE
+.idea/
+*.iml
+.vscode/
+.project
+.classpath
+.settings/
+
+# OS
+.DS_Store
+
+# Local Maven settings (may contain an API key); copy settings.example.xml instead
+/settings.xml

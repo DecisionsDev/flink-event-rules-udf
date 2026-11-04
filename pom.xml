@@ -1,0 +1,187 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+
+   Copyright IBM Corp. 2026
+
+   Licensed under the Apache License, Version 2.0 (the "License");
+   you may not use this file except in compliance with the License.
+   You may obtain a copy of the License at
+
+   http://www.apache.org/licenses/LICENSE-2.0
+
+   Unless required by applicable law or agreed to in writing, software
+   distributed under the License is distributed on an "AS IS" BASIS,
+   WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+   See the License for the specific language governing permissions and
+   limitations under the License.
+
+-->
+<project xmlns="http://maven.apache.org/POM/4.0.0"
+         xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0
+                             http://maven.apache.org/xsd/maven-4.0.0.xsd">
+  <modelVersion>4.0.0</modelVersion>
+
+  <groupId>com.ibm.di.flink</groupId>
+  <artifactId>flink-decision-udf</artifactId>
+  <version>1.0-SNAPSHOT</version>
+  <packaging>jar</packaging>
+
+  <name>Flink SQL Decision UDF</name>
+  <description>
+    Flink SQL scalar function that runs an IBM Decision Intelligence decision service archive.
+  </description>
+
+  <properties>
+    <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
+    <maven.compiler.release>21</maven.compiler.release>
+
+    <!-- Provided by the Flink cluster. Must match the image in docker-compose.yml. -->
+    <flink.version>2.2.0</flink.version>
+    <slf4j.version>2.0.13</slf4j.version>
+
+    <!-- Decision Intelligence API (interfaces only). Not on Maven Central: see README. -->
+    <engine.de.api.version>3.12.0</engine.de.api.version>
+    <jackson.version>2.16.2</jackson.version>
+
+    <!--
+      Sample decision service archive, downloaded from the public
+      icp4a/automation-decision-services-samples repository. The commit and checksum are pinned.
+    -->
+    <decision.service.commit>8ca83fe3c2d8421ef09c722ac5c98271d3f5bf66</decision.service.commit>
+    <decision.service.sha256>ddb2f07d3484fa191c2323b850ff24b3dcbae92907b9a3c1484775b21417bfc2</decision.service.sha256>
+    <decision.service.dir>${project.build.directory}/decision-service</decision.service.dir>
+  </properties>
+
+  <dependencies>
+    <!-- Provided by the Flink runtime -->
+    <dependency>
+      <groupId>org.apache.flink</groupId>
+      <artifactId>flink-table-common</artifactId>
+      <version>${flink.version}</version>
+      <scope>provided</scope>
+    </dependency>
+    <dependency>
+      <groupId>org.slf4j</groupId>
+      <artifactId>slf4j-api</artifactId>
+      <version>${slf4j.version}</version>
+      <scope>provided</scope>
+    </dependency>
+
+    <!-- Bundled in the UDF JAR -->
+    <dependency>
+      <groupId>com.ibm.decision</groupId>
+      <artifactId>engine-de-api</artifactId>
+      <version>${engine.de.api.version}</version>
+    </dependency>
+    <dependency>
+      <groupId>com.fasterxml.jackson.core</groupId>
+      <artifactId>jackson-databind</artifactId>
+      <version>${jackson.version}</version>
+    </dependency>
+    <!-- Used by the decision service archive to read and write dates -->
+    <dependency>
+      <groupId>com.fasterxml.jackson.datatype</groupId>
+      <artifactId>jackson-datatype-jsr310</artifactId>
+      <version>${jackson.version}</version>
+    </dependency>
+
+    <!-- Test -->
+    <dependency>
+      <groupId>org.junit.jupiter</groupId>
+      <artifactId>junit-jupiter-api</artifactId>
+      <version>5.10.1</version>
+      <scope>test</scope>
+    </dependency>
+    <dependency>
+      <groupId>org.junit.jupiter</groupId>
+      <artifactId>junit-jupiter-engine</artifactId>
+      <version>5.10.1</version>
+      <scope>test</scope>
+    </dependency>
+    <dependency>
+      <groupId>org.slf4j</groupId>
+      <artifactId>slf4j-simple</artifactId>
+      <version>${slf4j.version}</version>
+      <scope>test</scope>
+    </dependency>
+  </dependencies>
+
+  <build>
+    <plugins>
+      <plugin>
+        <groupId>org.apache.maven.plugins</groupId>
+        <artifactId>maven-compiler-plugin</artifactId>
+        <version>3.11.0</version>
+      </plugin>
+
+      <plugin>
+        <groupId>org.apache.maven.plugins</groupId>
+        <artifactId>maven-surefire-plugin</artifactId>
+        <version>3.2.5</version>
+      </plugin>
+
+      <!--
+        Download the sample decision service archive (Loan Approval) to
+        target/decision-service/loanApproval.jar. It is not bundled in the UDF JAR:
+        the SQL gives its location to the UDF.
+      -->
+      <plugin>
+        <groupId>com.googlecode.maven-download-plugin</groupId>
+        <artifactId>download-maven-plugin</artifactId>
+        <version>1.13.0</version>
+        <executions>
+          <execution>
+            <id>download-decision-service</id>
+            <phase>generate-test-resources</phase>
+            <goals><goal>wget</goal></goals>
+            <configuration>
+              <url>https://raw.githubusercontent.com/icp4a/automation-decision-services-samples/${decision.service.commit}/archives/loanApproval.jar</url>
+              <sha256>${decision.service.sha256}</sha256>
+              <outputDirectory>${decision.service.dir}</outputDirectory>
+              <outputFileName>loanApproval.jar</outputFileName>
+            </configuration>
+          </execution>
+        </executions>
+      </plugin>
+
+      <!-- UDF JAR for Flink: target/udf/flink-decision-udf.jar (UDF + decision API + Jackson) -->
+      <plugin>
+        <groupId>org.apache.maven.plugins</groupId>
+        <artifactId>maven-shade-plugin</artifactId>
+        <version>3.5.1</version>
+        <executions>
+          <execution>
+            <phase>package</phase>
+            <goals><goal>shade</goal></goals>
+            <configuration>
+              <createDependencyReducedPom>false</createDependencyReducedPom>
+              <outputFile>${project.build.directory}/udf/flink-decision-udf.jar</outputFile>
+              <filters>
+                <filter>
+                  <artifact>*:*</artifact>
+                  <excludes>
+                    <!-- engine-de-api is signed; a signature does not survive repackaging -->
+                    <exclude>META-INF/*.SF</exclude>
+                    <exclude>META-INF/*.DSA</exclude>
+                    <exclude>META-INF/*.RSA</exclude>
+                    <!-- Module descriptors and manifests of the dependencies do not apply to a shaded JAR -->
+                    <exclude>module-info.class</exclude>
+                    <exclude>META-INF/versions/*/module-info.class</exclude>
+                    <exclude>META-INF/MANIFEST.MF</exclude>
+                  </excludes>
+                </filter>
+              </filters>
+              <transformers>
+                <transformer implementation="org.apache.maven.plugins.shade.resource.ManifestResourceTransformer"/>
+                <transformer implementation="org.apache.maven.plugins.shade.resource.ServicesResourceTransformer"/>
+                <transformer implementation="org.apache.maven.plugins.shade.resource.ApacheLicenseResourceTransformer"/>
+                <transformer implementation="org.apache.maven.plugins.shade.resource.ApacheNoticeResourceTransformer"/>
+              </transformers>
+            </configuration>
+          </execution>
+        </executions>
+      </plugin>
+    </plugins>
+  </build>
+</project>
